@@ -1,0 +1,121 @@
+#!/bin/sh
+#
+# CheckPkg - A tool that checks for inconsistencies on installed packages
+# Copyright (C) 2009 Fabio Bas <ctrlaltca AT libero DOT IT>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+# This should work on all Slackware flavours (Slamd64, etc..)
+
+PKG_BASE_DIRECTORY="/var/log/packages/"
+CHECK_MISSING_FILES="no";
+CHECK_MISSING_LIBS="no";
+
+function usage() {
+	echo "$0: A tool that checks for inconsistencies on installed packages."
+	echo -e "Available options:"
+	echo -e "\t--missing-files\t check the filesystem for installed packages missing files"
+	echo -e "\t--missing-libs\t check what installed packages contains binaries missing some library"
+	echo -e "\t--package=<name>\t check the content of all packages that starts with <name>"
+	echo -e "\t--directory=<directory>\t use <directory> as the base directory that contains"
+	echo -e "\t\t\t\t the package log files (the default is /var/log/packages)"
+	exit
+}
+
+while [ -n "$1" ] ; do
+  case $1 in
+    --help)
+	usage
+    ;; 
+    --missing-files)
+	CHECK_MISSING_FILES="yes"
+	CHECK_MISSING_LIBS="no"
+	shift
+    ;; 
+    --missing-libs)
+	CHECK_MISSING_LIBS="yes"
+	CHECK_MISSING_FILES="no"
+	shift
+    ;; 
+    --package=*)
+	SINGLEPACKAGE=$(echo $1 | cut -f2 -d=)
+	shift
+    ;; 
+    --directory=*)
+	PKG_BASE_DIRECTORY=$(echo $1 | cut -f2 -d=)
+	shift
+    ;;
+    *)
+	echo "$1: Unknown option."
+	exit
+    ;;
+  esac
+done
+
+if [ "$SINGLEPACKAGE" != "" ]; then
+	FILELIST=`ls "$PKG_BASE_DIRECTORY/$SINGLEPACKAGE"*`
+	PACKAGEPATH=""
+else
+	FILELIST=`ls "$PKG_BASE_DIRECTORY"`
+	PACKAGEPATH="$PKG_BASE_DIRECTORY/"
+fi
+
+if [ "$CHECK_MISSING_FILES" == "yes" ]; then
+	for PACKAGE in $FILELIST
+	do
+	#echo checking "$package"..
+		for fn in `sed '
+			#remove all the lines before the start of the file list
+			1,/FILE LIST:/ d
+			# There are some things that we want to filter out: install scripts included in the package,
+			# lines containing ./, /dev/* , var/lib/rpm/tmp (that the slackware script deletes)
+			/\(^install\/\|^\.\/$\|^dev\/\|var\/lib\/rpm\/tmp\)/ d
+			# There are some substitutions we want to do: remove the .new suffix from configure files and
+			# incoming/ infix from some library files (glibc*)
+			s/\.new$//
+			s/^lib\(\|64\)\/incoming\//lib\1\//
+			# bash uses a temp bash2.new file, fix it aswell
+			s/bash2$/bash/' "$PACKAGEPATH$PACKAGE"`
+		do
+			[ ! -e /"$fn" ] && echo "$PACKAGE" misses "$fn"
+		done
+	done
+elif [ "$CHECK_MISSING_LIBS" == "yes" ]; then
+	for PACKAGE in $FILELIST
+	do
+	#echo checking "$package"..
+		for fn in `sed '
+			#remove all the lines before the start of the file list
+			1,/FILE LIST:/ d
+			# We just print out binaries
+			/\(^bin\/.\+[^/]$\|^sbin\/.\+[^/]$\|^usr\/bin\/.\+[^/]$\|^usr\/sbin\/.\+[^/]$\)/!d
+			# There are some substitutions we want to do: remove the .new suffix from some binary names
+			s/\.new$//
+			# bash uses a temp bash2.new file, fix it
+			s/bash2$/bash/' "$PACKAGEPATH$PACKAGE"`
+		do
+			ldd /"$fn" | sed '
+					#remove all the lines about found libraries
+					/\=> not found/!d
+					#filter out the library name
+					s/\(.\+\) => not found/\1/' | while read lib
+			do
+				echo Package: "$PACKAGE" Binary: /"$fn" missed library: "$lib"
+			done
+		done
+	done
+else
+	usage
+fi
