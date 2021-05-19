@@ -84,13 +84,15 @@ if [ "$CHECK_MISSING_FILES" == "yes" ]; then
 			# lines containing ./, /dev/* , var/lib/rpm/tmp (that the slackware script deletes)
 			/\(^install\/\|^\.\/$\|^dev\/\|var\/lib\/rpm\/tmp\)/ d
 			# There are some substitutions we want to do: remove the .new suffix from configure files and
-			# incoming/ infix from some library files (glibc*)
+			#incoming/ infix from some library files (glibc*)
 			s/\.new$//
 			s/^lib\(\|64\)\/incoming\//lib\1\//
-			# bash uses a temp bash4.new file, fix it aswell
-			s/bash4$/bash/
-			# this directory contains a file with an unicode name
-			/usr\/doc\/kbd-.*\/utf\/.*/ d
+			# bash uses a temp bash5.new file, fix it aswell
+			s/bash5$/bash/
+			# the following skips files with unicode names in specific folders
+			/usr\/doc\/kbd-.*\/utf\/.*\\.*/ d
+			/usr\/share\/ca-certificates\/mozilla\/NetLock_Arany_.*\\.*/ d
+			/usr\/share\/apps\/kvtml\/ca\/.*\\.*/ d
 			' "$PACKAGEPATH$PACKAGE")
 		do
 			[ ! -e /"$fn" ] && echo "$PACKAGE" misses /"$fn"
@@ -110,7 +112,7 @@ elif [ "$CHECK_MISSING_LIBS" == "yes" ]; then
 			# bash uses a temp bash4.new file, fix it
 			s/bash4$/bash/' "$PACKAGEPATH$PACKAGE")
 		do
-			ldd /"$fn" | sed '
+			ldd /"$fn" 2>&1 | sed '
 					#remove all the lines about found libraries
 					/\=> not found/!d
 					#filter out the library name
